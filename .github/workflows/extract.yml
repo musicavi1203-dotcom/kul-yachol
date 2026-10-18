@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       zip_name:
-        description: 'שם קובץ ה-ZIP בריפו (למשל: kulyacholandro-v1.zip)'
+        description: 'שם קובץ ה-ZIP בריפו (למשל: kulyacholandro-v2.zip)'
         required: true
-        default: 'kulyacholandro-v1.zip'
+        default: 'kulyacholandro-v2.zip'
 
 jobs:
   extract:
