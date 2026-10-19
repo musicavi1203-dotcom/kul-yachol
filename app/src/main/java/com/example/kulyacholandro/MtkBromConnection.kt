@@ -1,10 +1,10 @@
 package com.example.kulyacholandro
 
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
-import android.hardware.usb.UsbConstants
 import android.util.Log
 
 data class MtkDeviceInfo(
@@ -64,25 +64,30 @@ object MtkBromConnection {
     private const val TAG = "MtkBromConnection"
 
     const val MTK_VID = 0x0E8D
-    private val BROM_PIDS       = setOf(0x0003, 0x0001)
-    private val PRELOADER_PIDS  = setOf(0x07D0, 0x2000, 0x0050)
+    private val BROM_PIDS      = setOf(0x0003, 0x0001)
+    private val PRELOADER_PIDS = setOf(0x07D0, 0x2000, 0x0050)
 
-    private const val TIMEOUT_MS = 3000
+    // timeout קצר כדי שלא נתקע על spinner
+    private const val TIMEOUT_MS = 1000
 
-    // פקודות BROM
-    private const val CMD_GET_HW_CODE: Byte         = 0xFD.toByte()
-    private const val CMD_GET_HW_SW_VER: Byte       = 0xFC.toByte()
-    private const val CMD_GET_CHIP_ID: Byte         = 0xEF.toByte()
+    // לוג שמופיע על המסך (מוגדר ע"י ChipReadWorker)
+    @Volatile
+    var onLog: (String) -> Unit = {}
 
-    // Handshake byte
-    private const val BROM_HANDSHAKE_BYTE: Byte     = 0xA0.toByte()
-    private val BROM_HANDSHAKE_RESPONSE: ByteArray  = byteArrayOf(0x5F.toByte())
-    private val BROM_HANDSHAKE_SEQ: ByteArray       = byteArrayOf(
-        0xA0.toByte(), 0x0A.toByte(), 0x50.toByte(), 0x05.toByte()
-    )
-    private val BROM_HANDSHAKE_ACK: ByteArray       = byteArrayOf(
-        0x5F.toByte(), 0xF5.toByte(), 0xAF.toByte(), 0xFA.toByte()
-    )
+    private const val CMD_GET_HW_CODE: Int    = 0xFD
+    private const val CMD_GET_HW_SW_VER: Int  = 0xFC
+    private const val CMD_GET_CHIP_ID: Int    = 0xEF
+
+    // Handshake: שולחים בייט, מצפים לתשובה מתאימה
+    private val HS_TX = intArrayOf(0xA0, 0x0A, 0x50, 0x05)
+    private val HS_RX = intArrayOf(0x5F, 0xF5, 0xAF, 0xFA)
+
+    private fun say(msg: String) {
+        Log.d(TAG, msg)
+        onLog(msg)
+    }
+
+    private fun hex(v: Int): String = "%02X".format(v and 0xFF)
 
     fun isMtkDevice(device: UsbDevice): Boolean = device.vendorId == MTK_VID
 
@@ -101,9 +106,6 @@ object MtkBromConnection {
         mode         = getDeviceMode(device)
     )
 
-    /**
-     * מחפש ממשק USB Bulk עם endpoint בכיוון IN ו-OUT
-     */
     data class BulkEndpoints(
         val usbInterface: UsbInterface,
         val epIn: UsbEndpoint,
@@ -129,93 +131,95 @@ object MtkBromConnection {
         return null
     }
 
-    /**
-     * שולח byte אחד ומחכה לתשובה
-     */
-    private fun sendByte(conn: UsbDeviceConnection, ep: UsbEndpoint, b: Byte): Boolean {
-        val buf = byteArrayOf(b)
-        val sent = conn.bulkTransfer(ep, buf, 1, TIMEOUT_MS)
-        return sent == 1
+    private fun sendByte(conn: UsbDeviceConnection, ep: UsbEndpoint, v: Int): Boolean {
+        val buf = byteArrayOf(v.toByte())
+        val ret = conn.bulkTransfer(ep, buf, 1, TIMEOUT_MS)
+        say("  TX ${hex(v)} → ret=$ret")
+        return ret == 1
     }
 
-    private fun recvBytes(conn: UsbDeviceConnection, ep: UsbEndpoint, count: Int): ByteArray? {
-        val buf = ByteArray(count)
-        val received = conn.bulkTransfer(ep, buf, count, TIMEOUT_MS)
-        return if (received == count) buf else null
+    private fun recvByte(conn: UsbDeviceConnection, ep: UsbEndpoint): Int? {
+        val buf = ByteArray(1)
+        val ret = conn.bulkTransfer(ep, buf, 1, TIMEOUT_MS)
+        if (ret < 1) {
+            say("  RX → אין תשובה (ret=$ret)")
+            return null
+        }
+        val v = buf[0].toInt() and 0xFF
+        say("  RX ${hex(v)}")
+        return v
     }
 
     private fun recvWord16(conn: UsbDeviceConnection, ep: UsbEndpoint): Int? {
-        val buf = recvBytes(conn, ep, 2) ?: return null
+        val buf = ByteArray(2)
+        val ret = conn.bulkTransfer(ep, buf, 2, TIMEOUT_MS)
+        if (ret != 2) {
+            say("  RX16 → ret=$ret")
+            return null
+        }
         return ((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)
     }
 
     /**
-     * BROM Handshake — 4 bytes tusen-tur
-     * שולחים A0 0A 50 05, מצפים ל-5F F5 AF FA
+     * BROM handshake: שולחים A0 0A 50 05, מצפים ל-5F F5 AF FA
      */
     fun performBromHandshake(conn: UsbDeviceConnection, eps: BulkEndpoints): Boolean {
-        Log.d(TAG, "Starting BROM handshake")
-        for (i in BROM_HANDSHAKE_SEQ.indices) {
-            val sent = conn.bulkTransfer(eps.epOut, byteArrayOf(BROM_HANDSHAKE_SEQ[i]), 1, TIMEOUT_MS)
-            if (sent != 1) {
-                Log.e(TAG, "Handshake send failed at byte $i")
+        say("Handshake: שולח A0 0A 50 05")
+        for (i in HS_TX.indices) {
+            if (!sendByte(conn, eps.epOut, HS_TX[i])) {
+                say("❌ שליחה נכשלה בבייט $i")
                 return false
             }
-            val resp = recvBytes(conn, eps.epIn, 1)
-            if (resp == null || resp[0] != BROM_HANDSHAKE_ACK[i]) {
-                Log.e(TAG, "Handshake bad response at byte $i: ${resp?.get(0)?.toString(16)} vs ${BROM_HANDSHAKE_ACK[i].toString(16)}")
+            val rx = recvByte(conn, eps.epIn)
+            if (rx == null) {
+                say("❌ אין תשובה בבייט $i (צפוי ${hex(HS_RX[i])})")
+                return false
+            }
+            if (rx != HS_RX[i]) {
+                say("❌ תשובה שגויה בבייט $i: קיבלתי ${hex(rx)}, צפוי ${hex(HS_RX[i])}")
                 return false
             }
         }
-        Log.d(TAG, "BROM handshake success")
+        say("✅ Handshake הצליח")
         return true
     }
 
-    /**
-     * קריאת HW Code (= זיהוי השבב)
-     */
     fun readHwCode(conn: UsbDeviceConnection, eps: BulkEndpoints): Int? {
-        sendByte(conn, eps.epOut, CMD_GET_HW_CODE)
+        say("שולח GET_HW_CODE (FD)")
+        if (!sendByte(conn, eps.epOut, CMD_GET_HW_CODE)) return null
         return recvWord16(conn, eps.epIn)
     }
 
-    /**
-     * קריאת HW/SW גרסה
-     */
     fun readHwSwVer(conn: UsbDeviceConnection, eps: BulkEndpoints): Triple<Int, Int, Int>? {
-        sendByte(conn, eps.epOut, CMD_GET_HW_SW_VER)
+        say("שולח GET_HW_SW_VER (FC)")
+        if (!sendByte(conn, eps.epOut, CMD_GET_HW_SW_VER)) return null
         val sub = recvWord16(conn, eps.epIn) ?: return null
         val hw  = recvWord16(conn, eps.epIn) ?: return null
         val sw  = recvWord16(conn, eps.epIn) ?: return null
         return Triple(sub, hw, sw)
     }
 
-    /**
-     * נקודת הכניסה הראשית — BROM mode:
-     * handshake → hwCode → hwSwVer → מחזיר MtkChipInfo
-     */
     fun readChipInfoBrom(conn: UsbDeviceConnection, eps: BulkEndpoints): MtkChipInfo? {
         if (!performBromHandshake(conn, eps)) return null
-        val hwCode = readHwCode(conn, eps) ?: return null
+        val hwCode = readHwCode(conn, eps) ?: run {
+            say("❌ GET_HW_CODE לא החזיר תשובה")
+            return null
+        }
         val verTuple = readHwSwVer(conn, eps)
         return MtkChipInfo(
-            chipId     = hwCode,
-            hwCode     = hwCode,
-            hwSubCode  = verTuple?.first  ?: 0,
-            hwVer      = verTuple?.second ?: 0,
-            swVer      = verTuple?.third  ?: 0
+            chipId    = hwCode,
+            hwCode    = hwCode,
+            hwSubCode = verTuple?.first  ?: 0,
+            hwVer     = verTuple?.second ?: 0,
+            swVer     = verTuple?.third  ?: 0
         )
     }
 
-    /**
-     * Preloader mode — פשוט יותר, ה-Preloader מגיב לפקודת GET_CHIP_ID
-     * פרוטוקול: שלח 0xEF, קבל 2 bytes chip id
-     */
     fun readChipInfoPreloader(conn: UsbDeviceConnection, eps: BulkEndpoints): MtkChipInfo? {
-        Log.d(TAG, "Reading chip info in Preloader mode")
-        sendByte(conn, eps.epOut, CMD_GET_CHIP_ID)
+        say("שולח GET_CHIP_ID (EF) למצב Preloader")
+        if (!sendByte(conn, eps.epOut, CMD_GET_CHIP_ID)) return null
         val chipId = recvWord16(conn, eps.epIn) ?: run {
-            Log.e(TAG, "No response to GET_CHIP_ID")
+            say("❌ אין תשובה ל-GET_CHIP_ID")
             return null
         }
         return MtkChipInfo(

@@ -19,13 +19,18 @@ class ChipReadWorker(
     fun run() {
         Thread {
             try {
-                onLog("פותח ממשק USB...")
+                MtkBromConnection.onLog = onLog
+
+                onLog("ממשק: ${eps.usbInterface.id}, class=${eps.usbInterface.interfaceClass}")
+                onLog("IN=0x${"%02X".format(eps.epIn.address)}  OUT=0x${"%02X".format(eps.epOut.address)}")
+
                 val claimed = conn.claimInterface(eps.usbInterface, true)
                 if (!claimed) {
                     onLog("❌ לא ניתן לתפוס ממשק USB")
                     onResult(null)
                     return@Thread
                 }
+                onLog("✅ ממשק נתפס")
 
                 val chipInfo = when (mode) {
                     MtkMode.BROM -> {
@@ -33,7 +38,7 @@ class ChipReadWorker(
                         MtkBromConnection.readChipInfoBrom(conn, eps)
                     }
                     MtkMode.PRELOADER -> {
-                        onLog("מצב Preloader — שולח פקודת GET_CHIP_ID...")
+                        onLog("מצב Preloader — שולח GET_CHIP_ID...")
                         MtkBromConnection.readChipInfoPreloader(conn, eps)
                     }
                     MtkMode.UNKNOWN -> {
@@ -52,7 +57,7 @@ class ChipReadWorker(
                 onResult(chipInfo)
             } catch (e: Exception) {
                 Log.e(TAG, "Exception in ChipReadWorker", e)
-                onLog("❌ שגיאה: ${e.message}")
+                onLog("❌ שגיאה: ${e.javaClass.simpleName}: ${e.message}")
                 onResult(null)
             }
         }.start()
