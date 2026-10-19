@@ -31,10 +31,12 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug --no-daemon
 
-      - name: Commit APK to repo
+      - name: Save APK to repo
         run: |
           mkdir -p releases
           cp app/build/outputs/apk/debug/app-debug.apk releases/kul-yachol-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git
+          git add releases/kul-yachol-debug.apk
+          git commit -m "Build: update APK" || echo "No changes"
+          git push
