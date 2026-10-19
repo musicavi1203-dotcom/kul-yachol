@@ -52,6 +52,7 @@ class ChipReadWorker(
                     onLog("✅ שבב זוהה: ${chipInfo.chipName}")
                 } else {
                     onLog("❌ לא ניתן לקרוא מידע שבב")
+                    onLog("לניסיון נוסף: נתק את הטלפון וחבר אותו מחדש (כשהוא כבוי)")
                 }
 
                 onResult(chipInfo)

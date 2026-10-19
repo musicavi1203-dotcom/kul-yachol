@@ -184,18 +184,40 @@ object MtkBromConnection {
         return true
     }
 
+    /**
+     * שולח פקודה וקורא את ה-echo שלה — הטלפון מחזיר את אותו בייט לפני התשובה
+     */
+    private fun sendCmdWithEcho(conn: UsbDeviceConnection, ep: UsbEndpoint, epIn: UsbEndpoint, cmd: Int): Boolean {
+        if (!sendByte(conn, ep, cmd)) {
+            say("❌ שליחת ${hex(cmd)} נכשלה")
+            return false
+        }
+        val echo = recvByte(conn, epIn)
+        if (echo != cmd) {
+            val got = if (echo == null) "כלום" else hex(echo)
+            say("❌ echo לא תקין: קיבלתי $got, צפוי ${hex(cmd)}")
+            return false
+        }
+        return true
+    }
+
     fun readHwCode(conn: UsbDeviceConnection, eps: BulkEndpoints): Int? {
         say("שולח GET_HW_CODE (FD)")
-        if (!sendByte(conn, eps.epOut, CMD_GET_HW_CODE)) return null
-        return recvWord16(conn, eps.epIn)
+        if (!sendCmdWithEcho(conn, eps.epOut, eps.epIn, CMD_GET_HW_CODE)) return null
+        val value = recvWord16(conn, eps.epIn) ?: return null
+        val status = recvWord16(conn, eps.epIn)
+        say("HW code = ${formatHex(value)}, status = ${status?.let { formatHex(it) } ?: "?"}")
+        return value
     }
 
     fun readHwSwVer(conn: UsbDeviceConnection, eps: BulkEndpoints): Triple<Int, Int, Int>? {
         say("שולח GET_HW_SW_VER (FC)")
-        if (!sendByte(conn, eps.epOut, CMD_GET_HW_SW_VER)) return null
+        if (!sendCmdWithEcho(conn, eps.epOut, eps.epIn, CMD_GET_HW_SW_VER)) return null
         val sub = recvWord16(conn, eps.epIn) ?: return null
         val hw  = recvWord16(conn, eps.epIn) ?: return null
         val sw  = recvWord16(conn, eps.epIn) ?: return null
+        val status = recvWord16(conn, eps.epIn)
+        say("HW sub=${formatHex(sub)} hw=${formatHex(hw)} sw=${formatHex(sw)} status=${status?.let { formatHex(it) } ?: "?"}")
         return Triple(sub, hw, sw)
     }
 
