@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       zip_name:
-        description: 'שם קובץ ה-ZIP בריפו (למשל: kulyacholandro-v2.zip)'
+        description: 'שם קובץ ה-ZIP בריפו (למשל: kulyacholandro-v3.zip)'
         required: true
-        default: 'kulyacholandro-v2.zip'
+        default: 'kulyacholandro-v3.zip'
 
 jobs:
   extract:
@@ -19,14 +19,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract ZIP
-        run: |
-          unzip -o "${{ github.event.inputs.zip_name }}"
-          ZIP_DIR=$(unzip -Z1 "${{ github.event.inputs.zip_name }}" | head -1 | cut -d/ -f1)
-          if [ -d "$ZIP_DIR" ] && [ "$ZIP_DIR" != "." ]; then
-            cp -r "$ZIP_DIR"/. .
-            rm -rf "$ZIP_DIR"
-          fi
-          rm "${{ github.event.inputs.zip_name }}"
+        run: unzip -o "${{ github.event.inputs.zip_name }}"
+
+      - name: Remove ZIP
+        run: rm "${{ github.event.inputs.zip_name }}"
 
       - name: Commit and push
         run: |
