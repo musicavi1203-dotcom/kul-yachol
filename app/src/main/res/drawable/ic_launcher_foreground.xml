@@ -5,17 +5,17 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- USB plug shape -->
+    <!-- USB plug body -->
     <path
         android:fillColor="#1F6FEB"
         android:pathData="M50,20 L58,20 L58,30 L62,30 L62,50 L58,50 L58,55 L50,55 L50,50 L46,50 L46,30 L50,30 Z" />
 
     <!-- USB connector teeth -->
     <path
-        android:fillColor="#1F6FEB"
+        android:fillColor="#0D1117"
         android:pathData="M48,24 L50,24 L50,28 L48,28 Z" />
     <path
-        android:fillColor="#1F6FEB"
+        android:fillColor="#0D1117"
         android:pathData="M58,24 L60,24 L60,28 L58,28 Z" />
 
     <!-- Cable -->
@@ -23,7 +23,7 @@
         android:fillColor="#3FB950"
         android:pathData="M52,55 L56,55 L56,78 L52,78 Z" />
 
-    <!-- Circuit board lines -->
+    <!-- Circuit lines left -->
     <path
         android:strokeColor="#58A6FF"
         android:strokeWidth="2"
@@ -33,25 +33,26 @@
         android:strokeColor="#58A6FF"
         android:strokeWidth="2"
         android:fillColor="@android:color/transparent"
-        android:pathData="M62,70 L78,70" />
+        android:pathData="M30,75 L46,75" />
+
+    <!-- Circuit lines right -->
     <path
         android:strokeColor="#58A6FF"
         android:strokeWidth="2"
         android:fillColor="@android:color/transparent"
-        android:pathData="M30,75 L46,75" />
+        android:pathData="M62,70 L78,70" />
     <path
         android:strokeColor="#58A6FF"
         android:strokeWidth="2"
         android:fillColor="@android:color/transparent"
         android:pathData="M62,75 L78,75" />
 
-    <!-- Chip at bottom -->
-    <rect
-        android:x="42"
-        android:y="80"
-        android:width="24"
-        android:height="14"
-        android:fillColor="#238636" />
+    <!-- Chip body (as path rectangle) -->
+    <path
+        android:fillColor="#238636"
+        android:pathData="M42,80 L66,80 L66,94 L42,94 Z" />
+
+    <!-- Chip pins -->
     <path
         android:fillColor="#8B949E"
         android:pathData="M44,82 L46,82 L46,86 L44,86 Z" />
