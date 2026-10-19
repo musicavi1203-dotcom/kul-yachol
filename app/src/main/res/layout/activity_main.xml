@@ -246,6 +246,61 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- כרטיס קושחה וגיבוי -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardFlash"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="#161B22"
+            app:cardCornerRadius="12dp"
+            app:strokeColor="#30363D"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="💾 קושחה וגיבוי"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#58A6FF"
+                    android:layout_marginBottom="10dp" />
+
+                <Button
+                    android:id="@+id/btnPickFirmware"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:text="📂 בחר תיקיית קושחה (מחולצת)"
+                    android:textColor="#E6EDF3"
+                    android:backgroundTint="#30363D" />
+
+                <Button
+                    android:id="@+id/btnPickBackup"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="💾 בחר תיקיית גיבוי"
+                    android:textColor="#E6EDF3"
+                    android:backgroundTint="#30363D" />
+
+                <TextView
+                    android:id="@+id/tvFlashInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp"
+                    android:textColor="#8B949E"
+                    android:lineSpacingExtra="3dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- כרטיס לוג -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardLog"

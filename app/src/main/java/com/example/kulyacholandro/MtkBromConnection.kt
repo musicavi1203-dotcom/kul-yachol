@@ -24,6 +24,7 @@ data class MtkChipInfo(
     val swVer: Int
 ) {
     val chipName: String get() = when (chipId) {
+        0x0717 -> "MT6761 (Helio A22)"
         0x6580 -> "MT6580"
         0x6735 -> "MT6735"
         0x6737 -> "MT6737"

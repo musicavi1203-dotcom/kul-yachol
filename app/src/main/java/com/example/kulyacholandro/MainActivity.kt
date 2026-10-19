@@ -7,8 +7,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.view.View
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.example.kulyacholandro.databinding.ActivityMainBinding
 
@@ -18,8 +21,36 @@ class MainActivity : AppCompatActivity() {
     private lateinit var usbManager: UsbManager
     private var currentDevice: UsbDevice? = null
 
+    private var scatterPartitions: List<ScatterPartition> = emptyList()
+    private var scatterPlatform: String? = null
+    private var firmwareTree: Uri? = null
+    private var backupTree: Uri? = null
+
     companion object {
         const val ACTION_USB_PERMISSION = "com.example.kulyacholandro.USB_PERMISSION"
+    }
+
+    private val prefs by lazy { getSharedPreferences("kul_yachol", Context.MODE_PRIVATE) }
+
+    private val pickFirmware = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            firmwareTree = uri
+            prefs.edit().putString("firmware_tree", uri.toString()).apply()
+            refreshFlashInfo()
+        }
+    }
+
+    private val pickBackup = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            backupTree = uri
+            prefs.edit().putString("backup_tree", uri.toString()).apply()
+            refreshFlashInfo()
+        }
     }
 
     private val usbReceiver = object : BroadcastReceiver() {
@@ -77,12 +108,103 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.btnPickFirmware.setOnClickListener { pickFirmware.launch(null) }
+        binding.btnPickBackup.setOnClickListener { pickBackup.launch(null) }
+
+        // scatter ו-DA מוטמעים באפליקציה, ותיקיות נשמרות מהבחירה הקודמת
+        loadBundledScatter()
+        prefs.getString("firmware_tree", null)?.let { firmwareTree = Uri.parse(it) }
+        prefs.getString("backup_tree", null)?.let { backupTree = Uri.parse(it) }
+        refreshFlashInfo()
         checkAlreadyConnectedDevices()
 
         intent?.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)?.let {
             handleDeviceAttached(it)
         }
     }
+
+    // ---------- scatter / קושחה / גיבוי (קריאה בלבד) ----------
+
+    private fun loadBundledScatter() {
+        val text = try {
+            assets.open("scatter/MT6761_Android_scatter.txt").bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            ""
+        }
+        if (text.isBlank()) {
+            binding.tvFlashInfo.text = "❌ קובץ ה-scatter המוטמע לא נמצא"
+            return
+        }
+        scatterPlatform = ScatterParser.platform(text)
+        scatterPartitions = ScatterParser.parse(text)
+    }
+
+    private fun baseName(name: String): String =
+        name.lowercase().replace("-verified", "").substringBeforeLast('.')
+
+    private fun findFirmwareFile(scatterFile: String, available: Set<String>): String? {
+        if (scatterFile in available) return scatterFile
+        val want = baseName(scatterFile)
+        return available.firstOrNull { baseName(it) == want }
+    }
+
+    private fun listFirmwareFiles(treeUri: Uri): Map<String, Uri> {
+        val out = mutableMapOf<String, Uri>()
+        try {
+            val docId = DocumentsContract.getTreeDocumentId(treeUri)
+            val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
+            contentResolver.query(
+                children,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                ),
+                null, null, null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getString(0)
+                    val name = c.getString(1)
+                    out[name] = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                }
+            }
+        } catch (e: Exception) {
+            // תיקייה לא נגישה — מחזירים ריק
+        }
+        return out
+    }
+
+    private fun formatSize(b: Long): String = when {
+        b >= 1L shl 30 -> "%.1fGB".format(b / (1L shl 30).toDouble())
+        b >= 1L shl 20 -> "%.0fMB".format(b / (1L shl 20).toDouble())
+        else -> "${b / 1024}KB"
+    }
+
+    private fun refreshFlashInfo() {
+        val sb = StringBuilder()
+        if (scatterPartitions.isEmpty()) {
+            sb.append("scatter: לא נבחר\n")
+        } else {
+            sb.append("scatter: ${scatterPlatform ?: "?"}, ${scatterPartitions.size} מחיצות\n")
+        }
+        sb.append("קושחה: ${if (firmwareTree == null) "לא נבחרה" else "נבחרה"}\n")
+        sb.append("גיבוי: ${if (backupTree == null) "לא נבחר" else "נבחר"}\n")
+
+        if (scatterPartitions.isNotEmpty()) {
+            val files = firmwareTree?.let { listFirmwareFiles(it) }?.keys ?: emptySet()
+            sb.append("\nמחיצות להורדה (גודל מחיצה / קובץ):\n")
+            for (p in scatterPartitions.filter { it.isDownload }) {
+                val status = when {
+                    p.fileName == "NONE" -> "—"
+                    firmwareTree == null -> "?"
+                    else -> findFirmwareFile(p.fileName, files)?.let { "✅ $it" } ?: "❌ חסר (${p.fileName})"
+                }
+                sb.append("${p.name} (${formatSize(p.sizeBytes)}) $status\n")
+            }
+        }
+        binding.tvFlashInfo.text = sb.toString()
+    }
+
+    // ---------- USB ----------
 
     private fun checkAlreadyConnectedDevices() {
         usbManager.deviceList.values.forEach { device ->
@@ -212,7 +334,6 @@ class MainActivity : AppCompatActivity() {
         val newText = if (current.isEmpty()) msg else "$current\n$msg"
         binding.tvLog.text = newText
         binding.cardLog.visibility = View.VISIBLE
-        // גלול למטה
         binding.scrollView.post {
             binding.scrollView.fullScroll(View.FOCUS_DOWN)
         }
