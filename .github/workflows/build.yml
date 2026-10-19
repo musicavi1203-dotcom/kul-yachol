@@ -23,11 +23,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug --no-daemon
 
       - name: Commit APK to repo
         run: |
@@ -35,6 +37,4 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk releases/kul-yachol-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/kul-yachol-debug.apk
-          git commit -m "Build: update APK" || echo "No changes"
-          git push
+          git
