@@ -70,7 +70,7 @@ class MainActivity : AppCompatActivity() {
                     if (granted && device != null) {
                         binding.btnRequestPermission.visibility = View.GONE
                         showDeviceInfo(device)
-                        startChipRead(device)
+                        appendLog("ההרשאה אושרה. לחץ על 'קרא מידע שבב' כדי להתחיל")
                     } else {
                         appendLog("❌ הרשאת USB נדחתה")
                         binding.btnRequestPermission.text = getString(R.string.permission_denied)
@@ -228,7 +228,7 @@ class MainActivity : AppCompatActivity() {
 
         if (usbManager.hasPermission(device)) {
             showDeviceInfo(device)
-            startChipRead(device)
+            appendLog("הטלפון התחבר. לחץ על 'קרא מידע שבב' כדי להתחיל")
         } else {
             binding.tvStatus.text = getString(R.string.status_connected)
             binding.tvStatusIcon.text = "🔌"
