@@ -70,7 +70,8 @@ class MainActivity : AppCompatActivity() {
                     if (granted && device != null) {
                         binding.btnRequestPermission.visibility = View.GONE
                         showDeviceInfo(device)
-                        appendLog("ההרשאה אושרה. לחץ על 'קרא מידע שבב' כדי להתחיל")
+                        appendLog("✅ הרשאה אושרה — מתחיל אוטומטית...")
+                        startFullFlow(device)
                     } else {
                         appendLog("❌ הרשאת USB נדחתה")
                         binding.btnRequestPermission.text = getString(R.string.permission_denied)
@@ -238,7 +239,8 @@ class MainActivity : AppCompatActivity() {
 
         if (usbManager.hasPermission(device)) {
             showDeviceInfo(device)
-            appendLog("הטלפון התחבר. לחץ על 'קרא מידע שבב' כדי להתחיל")
+            appendLog("🔌 מכשיר חובר — מתחיל אוטומטית...")
+            startFullFlow(device)
         } else {
             binding.tvStatus.text = getString(R.string.status_connected)
             binding.tvStatusIcon.text = "🔌"
@@ -324,6 +326,37 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { appendLog(msg) }
             }
         ).run()
+    }
+
+    private fun startFullFlow(device: UsbDevice) {
+        val da1 = try { assets.open("da/da1_mt6761.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ da1_mt6761.bin לא נמצא"); return
+        }
+        val da2 = try { assets.open("da/da2_mt6761.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ da2_mt6761.bin לא נמצא"); return
+        }
+        val payload = try { assets.open("da/mt6761_payload.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ mt6761_payload.bin לא נמצא"); return
+        }
+
+        MtkBromConnection.onLog = { msg -> runOnUiThread { appendLog(msg) } }
+        binding.btnReadChip.isEnabled = false
+        binding.btnLoadDA.isEnabled = false
+
+        DaWorker(
+            usbManager = usbManager,
+            device     = device,
+            da1        = da1,
+            da2        = da2,
+            payload    = payload,
+            onDone     = { success, msg ->
+                runOnUiThread {
+                    appendLog(msg)
+                    binding.btnReadChip.isEnabled = true
+                    binding.btnLoadDA.isEnabled = true
+                }
+            }
+        ).start()
     }
 
     private fun startDaLoad(device: UsbDevice) {

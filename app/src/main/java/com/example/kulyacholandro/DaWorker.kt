@@ -36,6 +36,7 @@ class DaWorker(
             }
 
             // Handshake
+            MtkBromConnection.onLog("🤝 Handshake...")
             if (!MtkBromConnection.performBromHandshake(conn, eps)) {
                 conn.releaseInterface(eps.usbInterface)
                 conn.close()
@@ -43,8 +44,10 @@ class DaWorker(
                 return
             }
 
-            // בדוק chip
+            // קרא שבב
             val hwCode = MtkBromConnection.readHwCode(conn, eps)
+            MtkBromConnection.readHwSwVer(conn, eps)
+
             if (hwCode != 0x0717) {
                 conn.releaseInterface(eps.usbInterface)
                 conn.close()
