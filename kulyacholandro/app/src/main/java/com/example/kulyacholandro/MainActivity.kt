@@ -1,49 +1,54 @@
 package com.example.kulyacholandro
 
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbManager
+import android.content.*
+import android.hardware.usb.*
+import android.net.Uri
 import android.os.Bundle
-import android.view.View
+import android.provider.DocumentsContract
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import com.example.kulyacholandro.databinding.ActivityMainBinding
+import androidx.documentfile.provider.DocumentFile
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
     private lateinit var usbManager: UsbManager
     private var currentDevice: UsbDevice? = null
+    private var lastHwCode: Int? = null
 
-    companion object {
-        const val ACTION_USB_PERMISSION = "com.example.kulyacholandro.USB_PERMISSION"
-    }
+    private lateinit var tvStatus: TextView
+    private lateinit var tvLog: TextView
+    private lateinit var scrollLog: ScrollView
+    private lateinit var btnReadChip: Button
+    private lateinit var btnLoadDA: Button
+    private lateinit var tvScatter: TextView
+    private lateinit var tvFirmwareDir: TextView
+
+    private val ACTION_USB_PERMISSION = "com.example.kulyacholandro.USB_PERMISSION"
+    private val PREFS_KEY_FIRMWARE = "firmware_uri"
+    private val PREFS_KEY_BACKUP = "backup_uri"
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
+                ACTION_USB_PERMISSION -> {
+                    val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                        device?.let { handleDeviceAttached(it) }
+                    } else {
+                        appendLog("❌ הרשאה USB נדחתה")
+                    }
+                }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    device?.let { handleDeviceAttached(it) }
+                    val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                    device?.let { requestOrConnect(it) }
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    appendLog("🔌 הטלפון נותק")
                     currentDevice = null
-                    showDisconnected()
-                }
-                ACTION_USB_PERMISSION -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    if (granted && device != null) {
-                        binding.btnRequestPermission.visibility = View.GONE
-                        showDeviceInfo(device)
-                        startChipRead(device)
-                    } else {
-                        appendLog("❌ הרשאת USB נדחתה")
-                        binding.btnRequestPermission.text = getString(R.string.permission_denied)
-                    }
+                    tvStatus.text = getString(R.string.status_disconnected)
+                    btnReadChip.isEnabled = false
+                    btnLoadDA.isEnabled = false
                 }
             }
         }
@@ -51,190 +56,159 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
 
         usbManager = getSystemService(USB_SERVICE) as UsbManager
+        tvStatus = findViewById(R.id.tvStatus)
+        tvLog = findViewById(R.id.tvLog)
+        scrollLog = findViewById(R.id.scrollLog)
+        btnReadChip = findViewById(R.id.btnReadChip)
+        btnLoadDA = findViewById(R.id.btnLoadDA)
+        tvScatter = findViewById(R.id.tvScatter)
+        tvFirmwareDir = findViewById(R.id.tvFirmwareDir)
 
+        btnReadChip.isEnabled = false
+        btnLoadDA.isEnabled = false
+
+        btnReadChip.setOnClickListener {
+            currentDevice?.let { startChipRead(it) }
+        }
+
+        btnLoadDA.setOnClickListener {
+            currentDevice?.let { startDaLoad(it) }
+        }
+
+        findViewById<Button>(R.id.btnSelectFirmware).setOnClickListener {
+            openDirPicker(REQ_FIRMWARE_DIR)
+        }
+
+        // Register USB events
         val filter = IntentFilter().apply {
+            addAction(ACTION_USB_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-            addAction(ACTION_USB_PERMISSION)
         }
-        registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
+        registerReceiver(usbReceiver, filter)
 
-        binding.btnRequestPermission.setOnClickListener {
-            requestPermissionForFirstMtkDevice()
-        }
+        // Check already-connected device
+        usbManager.deviceList.values.forEach { requestOrConnect(it) }
 
-        binding.btnReadChip.setOnClickListener {
-            currentDevice?.let { dev ->
-                if (usbManager.hasPermission(dev)) {
-                    startChipRead(dev)
-                } else {
-                    requestPermissionForFirstMtkDevice()
-                }
-            }
+        // Load scatter info
+        loadScatterInfo()
+
+        // Restore firmware dir
+        val prefs = getPreferences(MODE_PRIVATE)
+        prefs.getString(PREFS_KEY_FIRMWARE, null)?.let { uri ->
+            tvFirmwareDir.text = Uri.parse(uri).lastPathSegment ?: uri
         }
 
-        checkAlreadyConnectedDevices()
-
-        intent?.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)?.let {
-            handleDeviceAttached(it)
-        }
-    }
-
-    private fun checkAlreadyConnectedDevices() {
-        usbManager.deviceList.values.forEach { device ->
-            if (MtkBromConnection.isMtkDevice(device)) {
-                handleDeviceAttached(device)
-                return
-            }
-        }
-    }
-
-    private fun handleDeviceAttached(device: UsbDevice) {
-        if (!MtkBromConnection.isMtkDevice(device)) {
-            binding.tvStatus.text = getString(R.string.status_unknown)
-            binding.cardDeviceInfo.visibility = View.GONE
-            binding.btnRequestPermission.visibility = View.GONE
-            binding.btnReadChip.visibility = View.GONE
-            return
-        }
-
-        currentDevice = device
-
-        if (usbManager.hasPermission(device)) {
-            showDeviceInfo(device)
-            startChipRead(device)
-        } else {
-            binding.tvStatus.text = getString(R.string.status_connected)
-            binding.tvStatusIcon.text = "🔌"
-            binding.btnRequestPermission.visibility = View.VISIBLE
-            binding.btnRequestPermission.text = getString(R.string.btn_request_permission)
-            binding.cardDeviceInfo.visibility = View.GONE
-            binding.btnReadChip.visibility = View.GONE
-            appendLog("מכשיר MTK חובר — דרושה הרשאת USB")
-        }
-    }
-
-    private fun requestPermissionForFirstMtkDevice() {
-        val device = usbManager.deviceList.values
-            .firstOrNull { MtkBromConnection.isMtkDevice(it) } ?: return
-        val pi = PendingIntent.getBroadcast(
-            this, 0,
-            Intent(ACTION_USB_PERMISSION),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        usbManager.requestPermission(device, pi)
-    }
-
-    private fun showDeviceInfo(device: UsbDevice) {
-        val info = MtkBromConnection.getDeviceInfo(device)
-
-        binding.tvStatus.text = getString(R.string.status_connected)
-        binding.tvStatusIcon.text = "✅"
-        binding.btnRequestPermission.visibility = View.GONE
-        binding.cardDeviceInfo.visibility = View.VISIBLE
-        binding.btnReadChip.visibility = View.VISIBLE
-
-        binding.tvVid.text = "VID: ${MtkBromConnection.formatVid(info.vid)}"
-        binding.tvPid.text = "PID: ${MtkBromConnection.formatPid(info.pid)}"
-        binding.tvManufacturer.text = "יצרן: ${info.manufacturer ?: "—"}"
-        binding.tvProduct.text = "מוצר: ${info.product ?: "—"}"
-
-        val modeStr = when (info.mode) {
-            MtkMode.BROM       -> getString(R.string.mode_brom)
-            MtkMode.PRELOADER  -> getString(R.string.mode_preloader)
-            MtkMode.UNKNOWN    -> getString(R.string.mode_unknown)
-        }
-        binding.tvMode.text = "מצב: $modeStr"
-
-        binding.cardChipInfo.visibility = View.GONE
-    }
-
-    private fun startChipRead(device: UsbDevice) {
-        val eps = MtkBromConnection.findBulkEndpoints(device)
-        if (eps == null) {
-            appendLog("❌ לא נמצאו Bulk endpoints במכשיר")
-            return
-        }
-
-        val conn = usbManager.openDevice(device)
-        if (conn == null) {
-            appendLog("❌ לא ניתן לפתוח חיבור USB")
-            return
-        }
-
-        val mode = MtkBromConnection.getDeviceMode(device)
-        clearLog()
-        appendLog("מתחבר למכשיר במצב ${mode.name}...")
-
-        binding.progressChip.visibility = View.VISIBLE
-        binding.btnReadChip.isEnabled = false
-
-        ChipReadWorker(
-            conn  = conn,
-            eps   = eps,
-            mode  = mode,
-            onResult = { chipInfo ->
-                runOnUiThread {
-                    binding.progressChip.visibility = View.GONE
-                    binding.btnReadChip.isEnabled = true
-                    conn.close()
-                    if (chipInfo != null) {
-                        showChipInfo(chipInfo)
-                    }
-                }
-            },
-            onLog = { msg ->
-                runOnUiThread { appendLog(msg) }
-            }
-        ).run()
-    }
-
-    private fun showChipInfo(chipInfo: MtkChipInfo) {
-        binding.cardChipInfo.visibility = View.VISIBLE
-        binding.tvChipName.text = chipInfo.chipName
-        binding.tvChipId.text = "Chip ID: ${MtkBromConnection.formatHex(chipInfo.chipId)}"
-        if (chipInfo.hwVer != 0 || chipInfo.swVer != 0) {
-            binding.tvChipVer.visibility = View.VISIBLE
-            binding.tvChipVer.text =
-                "HW: ${MtkBromConnection.formatHex(chipInfo.hwVer)}  " +
-                "SW: ${MtkBromConnection.formatHex(chipInfo.swVer)}"
-        } else {
-            binding.tvChipVer.visibility = View.GONE
-        }
-    }
-
-    private fun appendLog(msg: String) {
-        val current = binding.tvLog.text.toString()
-        val newText = if (current.isEmpty()) msg else "$current\n$msg"
-        binding.tvLog.text = newText
-        binding.cardLog.visibility = View.VISIBLE
-        // גלול למטה
-        binding.scrollView.post {
-            binding.scrollView.fullScroll(View.FOCUS_DOWN)
-        }
-    }
-
-    private fun clearLog() {
-        binding.tvLog.text = ""
-    }
-
-    private fun showDisconnected() {
-        binding.tvStatus.text = getString(R.string.status_disconnected)
-        binding.tvStatusIcon.text = "🔌"
-        binding.cardDeviceInfo.visibility = View.GONE
-        binding.cardChipInfo.visibility = View.GONE
-        binding.btnRequestPermission.visibility = View.GONE
-        binding.btnReadChip.visibility = View.GONE
-        binding.progressChip.visibility = View.GONE
-        appendLog("המכשיר נותק")
+        appendLog("👋 כל יכול אנדרואיד מוכן")
+        appendLog("📱 חבר טלפון MTK במצב BROM (כבוי + כבל USB)")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(usbReceiver)
+    }
+
+    private fun requestOrConnect(device: UsbDevice) {
+        if (usbManager.hasPermission(device)) {
+            handleDeviceAttached(device)
+        } else {
+            val intent = Intent(ACTION_USB_PERMISSION)
+            val pi = PendingIntent.getBroadcast(this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            usbManager.requestPermission(device, pi)
+        }
+    }
+
+    private fun handleDeviceAttached(device: UsbDevice) {
+        currentDevice = device
+        val vid = device.vendorId
+        val pid = device.productId
+        tvStatus.text = getString(R.string.status_connected)
+        appendLog("✅ מכשיר USB: VID=0x${vid.toString(16).uppercase()} PID=0x${pid.toString(16).uppercase()}")
+        appendLog("   ${device.manufacturerName ?: "?"} / ${device.productName ?: "?"}")
+        appendLog("💡 לחץ על 'קרא מידע שבב' כדי להתחיל")
+        btnReadChip.isEnabled = true
+        btnLoadDA.isEnabled = false
+    }
+
+    private fun startChipRead(device: UsbDevice) {
+        btnReadChip.isEnabled = false
+        btnLoadDA.isEnabled = false
+        appendLog("─────────────────")
+        ChipReadWorker(this, usbManager, device,
+            onLog = { msg -> runOnUiThread { appendLog(msg) } },
+            onDone = { hwCode ->
+                runOnUiThread {
+                    lastHwCode = hwCode
+                    btnReadChip.isEnabled = true
+                    if (hwCode != null) {
+                        btnLoadDA.isEnabled = true
+                    }
+                }
+            }
+        ).start()
+    }
+
+    private fun startDaLoad(device: UsbDevice) {
+        btnReadChip.isEnabled = false
+        btnLoadDA.isEnabled = false
+        appendLog("─────────────────")
+        appendLog("🔓 מתחיל טעינת DA...")
+        DaWorker(this, usbManager, device,
+            onLog = { msg -> runOnUiThread { appendLog(msg) } },
+            onDone = { success ->
+                runOnUiThread {
+                    btnReadChip.isEnabled = true
+                    if (success) {
+                        appendLog("✅ DA נטען — מוכן לפעולות!")
+                        btnLoadDA.isEnabled = false // wait for reconnect
+                    } else {
+                        btnLoadDA.isEnabled = true
+                    }
+                }
+            }
+        ).start()
+    }
+
+    private fun loadScatterInfo() {
+        try {
+            val text = assets.open("scatter/MT6761_Android_scatter.txt").bufferedReader().readText()
+            val platform = ScatterParser.platform(text)
+            val partitions = ScatterParser.parse(text)
+            val downloadable = partitions.count { it.isDownload }
+            tvScatter.text = "Scatter: $platform | ${partitions.size} partitions | $downloadable להורדה"
+        } catch (e: Exception) {
+            tvScatter.text = "Scatter: שגיאה: ${e.message}"
+        }
+    }
+
+    private val REQ_FIRMWARE_DIR = 1001
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        contentResolver.takePersistableUriPermission(uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        when (requestCode) {
+            REQ_FIRMWARE_DIR -> {
+                getPreferences(MODE_PRIVATE).edit().putString(PREFS_KEY_FIRMWARE, uri.toString()).apply()
+                tvFirmwareDir.text = uri.lastPathSegment ?: uri.toString()
+                appendLog("📁 תיקיית firmware: ${uri.lastPathSegment}")
+            }
+        }
+    }
+
+    private fun openDirPicker(reqCode: Int) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        startActivityForResult(intent, reqCode)
+    }
+
+    fun appendLog(msg: String) {
+        tvLog.append("$msg\n")
+        scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 }

@@ -1,286 +1,111 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/scrollView"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D1117"
-    android:padding="16dp">
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="#1A1A2E">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#E0E0E0"
+        android:gravity="center"
+        android:paddingBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/status_disconnected"
+        android:textColor="#FF5252"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:paddingBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tvScatter"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Scatter: טוען..."
+        android:textColor="#90CAF9"
+        android:textSize="12sp"
+        android:paddingBottom="4dp"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layoutDirection="rtl">
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
 
-        <!-- כותרת -->
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/tvFirmwareDir"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="20dp"
-            android:layout_marginTop="8dp">
+            android:layout_weight="1"
+            android:text="@string/no_firmware_dir"
+            android:textColor="#BDBDBD"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:ellipsize="start"/>
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/app_name"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:textColor="#E6EDF3" />
-
-            <TextView
-                android:id="@+id/tvVersion"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="v2.0"
-                android:textSize="12sp"
-                android:textColor="#8B949E"
-                android:background="#21262D"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="4dp" />
-        </LinearLayout>
-
-        <!-- כרטיס סטטוס -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="#161B22"
-            app:cardCornerRadius="12dp"
-            app:strokeColor="#30363D"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="16dp"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/tvStatusIcon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⏳"
-                    android:textSize="28sp"
-                    android:layout_marginStart="12dp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="סטטוס"
-                        android:textSize="11sp"
-                        android:textColor="#8B949E" />
-
-                    <TextView
-                        android:id="@+id/tvStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/status_waiting"
-                        android:textSize="17sp"
-                        android:textStyle="bold"
-                        android:textColor="#E6EDF3"
-                        android:layout_marginTop="2dp" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- כפתור הרשאה -->
         <Button
-            android:id="@+id/btnRequestPermission"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginBottom="12dp"
-            android:text="@string/btn_request_permission"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#1F6FEB"
-            android:visibility="gone" />
-
-        <!-- כרטיס פרטי מכשיר -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardDeviceInfo"
-            android:layout_width="match_parent"
+            android:id="@+id/btnSelectFirmware"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:visibility="gone"
-            app:cardBackgroundColor="#161B22"
-            app:cardCornerRadius="12dp"
-            app:strokeColor="#30363D"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔍 פרטי מכשיר USB"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#58A6FF"
-                    android:layout_marginBottom="10dp" />
-
-                <TextView android:id="@+id/tvVid"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#E6EDF3"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView android:id="@+id/tvPid"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#E6EDF3"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView android:id="@+id/tvManufacturer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#8B949E"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView android:id="@+id/tvProduct"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#8B949E"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView android:id="@+id/tvMode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#3FB950"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <!-- כפתור קרא מידע שבב -->
-                <Button
-                    android:id="@+id/btnReadChip"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="12dp"
-                    android:text="📡 קרא מידע שבב"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#238636"
-                    android:visibility="gone" />
-
-                <ProgressBar
-                    android:id="@+id/progressChip"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginTop="8dp"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- כרטיס מידע שבב -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardChipInfo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:visibility="gone"
-            app:cardBackgroundColor="#0D2818"
-            app:cardCornerRadius="12dp"
-            app:strokeColor="#238636"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="✅ מידע שבב"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#3FB950"
-                    android:layout_marginBottom="8dp" />
-
-                <TextView
-                    android:id="@+id/tvChipName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
-                    android:textColor="#E6EDF3"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView
-                    android:id="@+id/tvChipId"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:fontFamily="monospace"
-                    android:textColor="#8B949E"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView
-                    android:id="@+id/tvChipVer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"
-                    android:textColor="#8B949E"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- כרטיס לוג -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardLog"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:visibility="gone"
-            app:cardBackgroundColor="#0D1117"
-            app:cardCornerRadius="12dp"
-            app:strokeColor="#30363D"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="12dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📋 לוג"
-                    android:textSize="12sp"
-                    android:textColor="#8B949E"
-                    android:layout_marginBottom="6dp" />
-
-                <TextView
-                    android:id="@+id/tvLog"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"
-                    android:textColor="#8B949E"
-                    android:lineSpacingExtra="4dp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
+            android:text="@string/btn_select_firmware"
+            android:textSize="11sp"
+            android:backgroundTint="#3949AB"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"/>
     </LinearLayout>
-</ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btnReadChip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/btn_read_chip"
+            android:backgroundTint="#1565C0"
+            android:textColor="#FFFFFF"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btnLoadDA"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/btn_load_da"
+            android:backgroundTint="#6A1B9A"
+            android:textColor="#FFFFFF"
+            android:layout_marginStart="4dp"/>
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/scrollLog"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#0D0D1A"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/tvLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#B0BEC5"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:lineSpacingMultiplier="1.3"/>
+    </ScrollView>
+
+</LinearLayout>

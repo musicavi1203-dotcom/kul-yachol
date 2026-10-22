@@ -108,6 +108,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.btnLoadDA.setOnClickListener {
+            currentDevice?.let { dev ->
+                if (usbManager.hasPermission(dev)) {
+                    startDaLoad(dev)
+                } else {
+                    requestPermissionForFirstMtkDevice()
+                }
+            }
+        }
+
         binding.btnPickFirmware.setOnClickListener { pickFirmware.launch(null) }
         binding.btnPickBackup.setOnClickListener { pickBackup.launch(null) }
 
@@ -259,6 +269,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnRequestPermission.visibility = View.GONE
         binding.cardDeviceInfo.visibility = View.VISIBLE
         binding.btnReadChip.visibility = View.VISIBLE
+        binding.btnLoadDA.visibility = View.VISIBLE
 
         binding.tvVid.text = "VID: ${MtkBromConnection.formatVid(info.vid)}"
         binding.tvPid.text = "PID: ${MtkBromConnection.formatPid(info.pid)}"
@@ -313,6 +324,37 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { appendLog(msg) }
             }
         ).run()
+    }
+
+    private fun startDaLoad(device: UsbDevice) {
+        val da1 = try { assets.open("da/da1_mt6761.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ da1_mt6761.bin לא נמצא"); return
+        }
+        val da2 = try { assets.open("da/da2_mt6761.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ da2_mt6761.bin לא נמצא"); return
+        }
+        val payload = try { assets.open("da/mt6761_payload.bin").readBytes() } catch (e: Exception) {
+            appendLog("❌ mt6761_payload.bin לא נמצא"); return
+        }
+
+        appendLog("🔓 מתחיל Kamakiri + DA loading...")
+        binding.btnLoadDA.isEnabled = false
+
+        MtkBromConnection.onLog = { msg -> runOnUiThread { appendLog(msg) } }
+
+        DaWorker(
+            usbManager = usbManager,
+            device     = device,
+            da1        = da1,
+            da2        = da2,
+            payload    = payload,
+            onDone     = { success, msg ->
+                runOnUiThread {
+                    appendLog(msg)
+                    binding.btnLoadDA.isEnabled = true
+                }
+            }
+        ).start()
     }
 
     private fun showChipInfo(chipInfo: MtkChipInfo) {

@@ -1,243 +1,202 @@
 package com.example.kulyacholandro
 
-import android.hardware.usb.*
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbEndpoint
+import android.util.Log
 
-/**
- * DA Loader — loads DA1 and DA2 into device RAM and jumps to DA1
- * Based on mtkclient/Library/mtk_preloader.py + DA/xflash/xflash_lib.py by bkerler
- *
- * Flow:
- * 1. SEND_DA (0xD7): upload DA1 to 0x200000
- * 2. JUMP_DA (0xD5): jump to 0x200000
- * 3. Wait for sync byte 0xC0
- * 4. XFLASH init: sync, setup_env, setup_hw_init
- * 5. boot_to: load DA2 to 0x40000000
- */
 object DaLoader {
+    private const val TAG = "DaLoader"
+    private const val TIMEOUT_MS = 5000
 
-    var onLog: ((String) -> Unit)? = null
-    private fun say(msg: String) { onLog?.invoke(msg) }
+    private const val CMD_SEND_DA: Int  = 0xD7
+    private const val CMD_JUMP_DA: Int  = 0xD5
 
-    private const val TIMEOUT_MS = 3000
-    private const val DA1_LOAD_ADDR = 0x200000L
-    private const val DA2_LOAD_ADDR = 0x40000000L
-    private const val DA1_SIG_LEN   = 0x100
-    private const val DA2_SIG_LEN   = 0x100
+    private const val DA1_LOAD_ADDR: Long = 0x200000L
+    private const val DA2_LOAD_ADDR: Long = 0x40000000L
+    private const val SIG_LEN: Long       = 0x100L
 
-    // XFLASH commands
-    private const val XFLASH_SYNC          = 0x50
-    private const val XFLASH_SETUP_ENV     = 0x51
-    private const val XFLASH_SETUP_HW_INIT = 0x52
-    private const val XFLASH_BOOT_TO       = 0x54
+    private fun say(msg: String) {
+        Log.d(TAG, msg)
+        MtkBromConnection.onLog(msg)
+    }
 
-    /**
-     * Full DA loading sequence.
-     * da1: bytes of DA1 region
-     * da2: bytes of DA2 region
-     */
-    fun loadDA(conn: UsbDeviceConnection, eps: UsbEndpoints, da1: ByteArray, da2: ByteArray): Boolean {
-        say("📦 טוען DA1 (${da1.size} bytes) לכתובת 0x${DA1_LOAD_ADDR.toString(16)}...")
-        if (!sendDA(conn, eps, da1, DA1_LOAD_ADDR, DA1_SIG_LEN)) {
-            say("❌ SEND_DA נכשל")
-            return false
+    private fun sendByte(conn: UsbDeviceConnection, ep: UsbEndpoint, v: Int): Boolean {
+        val buf = byteArrayOf(v.toByte())
+        return conn.bulkTransfer(ep, buf, 1, TIMEOUT_MS) == 1
+    }
+
+    private fun recvByte(conn: UsbDeviceConnection, ep: UsbEndpoint): Int? {
+        val buf = ByteArray(1)
+        val ret = conn.bulkTransfer(ep, buf, 1, TIMEOUT_MS)
+        if (ret < 1) return null
+        return buf[0].toInt() and 0xFF
+    }
+
+    private fun recvWord16(conn: UsbDeviceConnection, ep: UsbEndpoint): Int? {
+        val buf = ByteArray(2)
+        val ret = conn.bulkTransfer(ep, buf, 2, TIMEOUT_MS)
+        if (ret != 2) return null
+        return ((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)
+    }
+
+    private fun write4BE(conn: UsbDeviceConnection, ep: UsbEndpoint, value: Long) {
+        val buf = byteArrayOf(
+            ((value shr 24) and 0xFF).toByte(),
+            ((value shr 16) and 0xFF).toByte(),
+            ((value shr  8) and 0xFF).toByte(),
+            ( value         and 0xFF).toByte()
+        )
+        conn.bulkTransfer(ep, buf, 4, TIMEOUT_MS)
+    }
+
+    private fun read4BE(conn: UsbDeviceConnection, ep: UsbEndpoint): Long? {
+        val buf = ByteArray(4)
+        val ret = conn.bulkTransfer(ep, buf, 4, TIMEOUT_MS)
+        if (ret != 4) return null
+        return ((buf[0].toLong() and 0xFF) shl 24) or
+               ((buf[1].toLong() and 0xFF) shl 16) or
+               ((buf[2].toLong() and 0xFF) shl  8) or
+                (buf[3].toLong() and 0xFF)
+    }
+
+    private fun sendBytes(conn: UsbDeviceConnection, ep: UsbEndpoint, data: ByteArray): Boolean {
+        var offset = 0
+        while (offset < data.size) {
+            val chunk = minOf(512, data.size - offset)
+            val ret = conn.bulkTransfer(ep, data, offset, chunk, TIMEOUT_MS)
+            if (ret <= 0) return false
+            offset += ret
         }
-        say("✅ SEND_DA הצליח")
-
-        say("🚀 קופץ ל-DA1 (JUMP_DA)...")
-        if (!jumpDA(conn, eps, DA1_LOAD_ADDR)) {
-            say("❌ JUMP_DA נכשל")
-            return false
-        }
-        say("✅ JUMP_DA הצליח")
-
-        say("⏳ ממתין לסנכרון DA1 (0xC0)...")
-        if (!waitSync(conn, eps)) {
-            say("❌ sync byte לא התקבל")
-            return false
-        }
-        say("✅ sync 0xC0 התקבל")
-
-        say("🔧 אתחול XFLASH...")
-        if (!xflashInit(conn, eps)) {
-            say("❌ XFLASH init נכשל")
-            return false
-        }
-        say("✅ XFLASH מאותחל")
-
-        say("📦 טוען DA2 (${da2.size} bytes)...")
-        if (!bootToDA2(conn, eps, da2)) {
-            say("❌ boot_to DA2 נכשל")
-            return false
-        }
-        say("✅ DA2 נטען — מוכן לפעולות flash!")
         return true
     }
 
     /**
-     * SEND_DA (0xD7):
-     * cmd + echo, 4B addr, 4B size, 4B sig_len, status, data+checksum, checksum_echo
+     * SEND_DA (0xD7): שולח DA לזיכרון המכשיר
      */
-    private fun sendDA(conn: UsbDeviceConnection, eps: UsbEndpoints,
-                       data: ByteArray, addr: Long, sigLen: Int): Boolean {
-        // Send command with echo
-        val cmdBuf = byteArrayOf(MtkBromConnection.CMD_SEND_DA.toByte())
-        if (conn.bulkTransfer(eps.epOut, cmdBuf, 1, TIMEOUT_MS) < 0) return false
-        val echo = ByteArray(1)
-        conn.bulkTransfer(eps.epIn, echo, 1, TIMEOUT_MS)
-        if (echo[0].toInt() and 0xFF != MtkBromConnection.CMD_SEND_DA) {
-            say("❌ SEND_DA echo שגוי: 0x${(echo[0].toInt() and 0xFF).toString(16)}")
-            return false
-        }
+    private fun sendDA(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints,
+                       data: ByteArray, loadAddr: Long, sigLen: Long): Boolean {
+        say("SEND_DA: addr=0x${loadAddr.toString(16)} size=${data.size}")
 
-        // Send addr (4 bytes BE)
-        MtkBromConnection.write4BE(conn, eps.epOut, addr)
-        // Send size (4 bytes BE)
-        MtkBromConnection.write4BE(conn, eps.epOut, data.size.toLong())
-        // Send sig_len (4 bytes BE)
-        MtkBromConnection.write4BE(conn, eps.epOut, sigLen.toLong())
+        if (!sendByte(conn, eps.epOut, CMD_SEND_DA)) { say("❌ שליחת CMD_SEND_DA נכשלה"); return false }
+        val echo = recvByte(conn, eps.epIn)
+        if (echo != CMD_SEND_DA) { say("❌ echo שגוי"); return false }
 
-        // Read status (should be 0x0000 as 2 bytes)
-        val statusBuf = ByteArray(2)
-        conn.bulkTransfer(eps.epIn, statusBuf, 2, TIMEOUT_MS)
-        val status = ((statusBuf[0].toInt() and 0xFF) shl 8) or (statusBuf[1].toInt() and 0xFF)
-        if (status != 0) {
-            say("❌ SEND_DA status: 0x${status.toString(16)}")
-            return false
-        }
-        say("   status OK, שולח ${data.size} bytes...")
+        write4BE(conn, eps.epOut, loadAddr)
+        write4BE(conn, eps.epOut, data.size.toLong())
+        write4BE(conn, eps.epOut, sigLen)
 
-        // Calculate XOR checksum
-        var checksum = 0
+        val status = recvWord16(conn, eps.epIn)
+        if (status != 0x0000) { say("❌ status שגוי: 0x${status?.toString(16)}"); return false }
+
+        say("שולח ${data.size} bytes...")
+        if (!sendBytes(conn, eps.epOut, data)) { say("❌ שליחת bytes נכשלה"); return false }
+
+        // חשב XOR checksum
+        var checksum: Int = 0
         for (b in data) checksum = checksum xor (b.toInt() and 0xFF)
-
-        // Send data
-        if (!MtkBromConnection.sendBytes(conn, eps.epOut, data)) {
-            say("❌ שליחת data DA נכשלה")
-            return false
-        }
-
-        // Send checksum (2 bytes BE)
-        val csBuf = byteArrayOf(
-            ((checksum shr 8) and 0xFF).toByte(),
-            (checksum and 0xFF).toByte()
-        )
+        val csBuf = byteArrayOf(0, checksum.toByte())
         conn.bulkTransfer(eps.epOut, csBuf, 2, TIMEOUT_MS)
 
-        // Read checksum echo
-        val csEcho = ByteArray(2)
-        conn.bulkTransfer(eps.epIn, csEcho, 2, TIMEOUT_MS)
-        val csEchoVal = ((csEcho[0].toInt() and 0xFF) shl 8) or (csEcho[1].toInt() and 0xFF)
-        if (csEchoVal != checksum) {
-            say("⚠️ checksum: שלחתי 0x${checksum.toString(16)}, קיבלתי 0x${csEchoVal.toString(16)}")
-            // Continue anyway — some devices don't echo correctly
-        }
-        say("   checksum: 0x${checksum.toString(16)}")
+        val csEcho = recvWord16(conn, eps.epIn)
+        say("Checksum: שלחנו 0x${checksum.toString(16)}, קיבלנו 0x${csEcho?.toString(16)}")
+
+        say("✅ SEND_DA הצליח")
         return true
     }
 
     /**
-     * JUMP_DA (0xD5):
-     * cmd + echo, 4B addr, read addr echo, read status
+     * JUMP_DA (0xD5): קופץ לכתובת ה-DA
      */
-    private fun jumpDA(conn: UsbDeviceConnection, eps: UsbEndpoints, addr: Long): Boolean {
-        val cmdBuf = byteArrayOf(MtkBromConnection.CMD_JUMP_DA.toByte())
-        if (conn.bulkTransfer(eps.epOut, cmdBuf, 1, TIMEOUT_MS) < 0) return false
-        val echo = ByteArray(1)
-        conn.bulkTransfer(eps.epIn, echo, 1, TIMEOUT_MS)
-        if (echo[0].toInt() and 0xFF != MtkBromConnection.CMD_JUMP_DA) {
-            say("❌ JUMP_DA echo שגוי: 0x${(echo[0].toInt() and 0xFF).toString(16)}")
-            return false
-        }
+    private fun jumpDA(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints, addr: Long): Boolean {
+        say("JUMP_DA: addr=0x${addr.toString(16)}")
 
-        // Send address
-        MtkBromConnection.write4BE(conn, eps.epOut, addr)
+        if (!sendByte(conn, eps.epOut, CMD_JUMP_DA)) { say("❌ שליחת CMD_JUMP_DA נכשלה"); return false }
+        val echo = recvByte(conn, eps.epIn)
+        if (echo != CMD_JUMP_DA) { say("❌ echo שגוי"); return false }
 
-        // Read back address echo
-        val addrEcho = MtkBromConnection.read4BE(conn, eps.epIn)
-        say("   addr echo: 0x${addrEcho?.toString(16) ?: "null"}")
+        write4BE(conn, eps.epOut, addr)
 
-        // Read status
-        val status = ByteArray(2)
-        conn.bulkTransfer(eps.epIn, status, 2, TIMEOUT_MS)
-        val statusVal = ((status[0].toInt() and 0xFF) shl 8) or (status[1].toInt() and 0xFF)
-        if (statusVal != 0) {
-            say("❌ JUMP_DA status: 0x${statusVal.toString(16)}")
-            return false
-        }
+        val addrEcho = read4BE(conn, eps.epIn)
+        say("addr echo = 0x${addrEcho?.toString(16)}")
+
+        val status = recvWord16(conn, eps.epIn)
+        if (status != 0x0000) { say("❌ status שגוי: 0x${status?.toString(16)}"); return false }
+
+        say("✅ JUMP_DA הצליח")
         return true
     }
 
     /**
-     * Wait for sync byte 0xC0 from DA1
+     * ממתין לסנכרון XFLASH (0xC0) אחרי JUMP_DA
      */
-    private fun waitSync(conn: UsbDeviceConnection, eps: UsbEndpoints): Boolean {
-        val buf = ByteArray(1)
-        for (attempt in 0..50) {
-            val r = conn.bulkTransfer(eps.epIn, buf, 1, TIMEOUT_MS)
-            if (r == 1 && buf[0].toInt() and 0xFF == 0xC0) return true
+    private fun waitSync(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints): Boolean {
+        say("ממתין ל-XFLASH sync (0xC0)...")
+        for (i in 0..50) {
+            val b = recvByte(conn, eps.epIn)
+            if (b == 0xC0) { say("✅ קיבלנו sync 0xC0"); return true }
             Thread.sleep(100)
         }
+        say("❌ timeout: לא קיבלנו 0xC0")
         return false
     }
 
     /**
-     * XFLASH init: send SYNC, setup_env, setup_hw_init
+     * שולח פקודת XFLASH בסיסית ומצפה לstatus=0
      */
-    private fun xflashInit(conn: UsbDeviceConnection, eps: UsbEndpoints): Boolean {
-        // Send SYNC (0x50)
-        if (!sendXflashCmd(conn, eps, XFLASH_SYNC)) {
-            say("❌ XFLASH SYNC נכשל")
-            return false
-        }
-        say("   SYNC ✓")
+    private fun xflashCmd(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints, cmd: Int, name: String): Boolean {
+        val buf = byteArrayOf(cmd.toByte())
+        conn.bulkTransfer(eps.epOut, buf, 1, TIMEOUT_MS)
+        val status = recvByte(conn, eps.epIn)
+        say("$name: status=0x${status?.toString(16)}")
+        return status == 0x00
+    }
 
-        // setup_env (0x51)
-        if (!sendXflashCmd(conn, eps, XFLASH_SETUP_ENV)) {
-            say("❌ XFLASH SETUP_ENV נכשל")
-            return false
-        }
-        say("   SETUP_ENV ✓")
+    /**
+     * BOOT_TO (0x54): מעביר ל-DA2
+     */
+    private fun bootToDA2(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints, da2: ByteArray): Boolean {
+        say("BOOT_TO DA2: addr=0x${DA2_LOAD_ADDR.toString(16)} size=${da2.size}")
 
-        // setup_hw_init (0x52)
-        if (!sendXflashCmd(conn, eps, XFLASH_SETUP_HW_INIT)) {
-            say("❌ XFLASH SETUP_HW_INIT נכשל")
-            return false
-        }
-        say("   SETUP_HW_INIT ✓")
+        val buf = byteArrayOf(0x54)
+        conn.bulkTransfer(eps.epOut, buf, 1, TIMEOUT_MS)
+
+        // שלח כתובת DA2 (8 bytes BE)
+        val addrBuf = ByteArray(8)
+        for (i in 0..7) addrBuf[i] = ((DA2_LOAD_ADDR shr ((7 - i) * 8)) and 0xFF).toByte()
+        conn.bulkTransfer(eps.epOut, addrBuf, 8, TIMEOUT_MS)
+
+        // שלח גודל (4 bytes BE)
+        write4BE(conn, eps.epOut, da2.size.toLong())
+
+        val status = recvByte(conn, eps.epIn)
+        if (status != 0x00) { say("❌ BOOT_TO status שגוי: 0x${status?.toString(16)}"); return false }
+
+        say("שולח DA2 (${da2.size} bytes)...")
+        if (!sendBytes(conn, eps.epOut, da2)) { say("❌ שליחת DA2 נכשלה"); return false }
+
+        say("✅ BOOT_TO DA2 הצליח")
         return true
     }
 
     /**
-     * Send XFLASH command and read status byte
+     * הפונקציה הראשית: טוענת DA1 + DA2
      */
-    private fun sendXflashCmd(conn: UsbDeviceConnection, eps: UsbEndpoints, cmd: Int): Boolean {
-        val buf = byteArrayOf(cmd.toByte())
-        conn.bulkTransfer(eps.epOut, buf, 1, TIMEOUT_MS)
-        val resp = ByteArray(1)
-        val r = conn.bulkTransfer(eps.epIn, resp, 1, TIMEOUT_MS)
-        return r == 1 && resp[0].toInt() and 0xFF == 0  // status 0 = OK
-    }
+    fun loadDA(conn: UsbDeviceConnection, eps: MtkBromConnection.BulkEndpoints,
+               da1: ByteArray, da2: ByteArray): Boolean {
+        say("=== DA Loading ===")
 
-    /**
-     * boot_to (0x54): upload DA2 to 0x40000000
-     */
-    private fun bootToDA2(conn: UsbDeviceConnection, eps: UsbEndpoints, da2: ByteArray): Boolean {
-        val buf = byteArrayOf(XFLASH_BOOT_TO.toByte())
-        conn.bulkTransfer(eps.epOut, buf, 1, TIMEOUT_MS)
+        if (!sendDA(conn, eps, da1, DA1_LOAD_ADDR, SIG_LEN)) return false
+        if (!jumpDA(conn, eps, DA1_LOAD_ADDR)) return false
+        if (!waitSync(conn, eps)) return false
 
-        // Send DA2 address (8 bytes BE for 64-bit) then size
-        val addrBuf = byteArrayOf(0, 0, 0, 0, 0x40, 0, 0, 0) // 0x40000000 as 8 bytes
-        conn.bulkTransfer(eps.epOut, addrBuf, 8, TIMEOUT_MS)
-        MtkBromConnection.write4BE(conn, eps.epOut, da2.size.toLong())
+        say("XFLASH init...")
+        if (!xflashCmd(conn, eps, 0x50, "SYNC")) return false
+        if (!xflashCmd(conn, eps, 0x51, "SETUP_ENV")) return false
+        if (!xflashCmd(conn, eps, 0x52, "SETUP_HW_INIT")) return false
 
-        // Read status
-        val status = ByteArray(1)
-        conn.bulkTransfer(eps.epIn, status, 1, TIMEOUT_MS)
-        if (status[0].toInt() and 0xFF != 0) {
-            say("⚠️ boot_to status: 0x${(status[0].toInt() and 0xFF).toString(16)}")
-        }
+        if (!bootToDA2(conn, eps, da2)) return false
 
-        // Send DA2
-        return MtkBromConnection.sendBytes(conn, eps.epOut, da2)
+        say("✅ DA נטען בהצלחה!")
+        return true
     }
 }

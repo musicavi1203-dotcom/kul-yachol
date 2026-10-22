@@ -1,103 +1,77 @@
 package com.example.kulyacholandro
 
-import android.content.Context
-import android.hardware.usb.*
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import android.util.Log
 
-/**
- * Background worker: runs Kamakiri exploit + loads DA1/DA2
- */
 class DaWorker(
-    private val context: Context,
     private val usbManager: UsbManager,
     private val device: UsbDevice,
-    private val onLog: (String) -> Unit,
-    private val onDone: (success: Boolean) -> Unit
-) {
-    fun start() {
-        Thread {
-            MtkBromConnection.onLog = onLog
-            KamakiriExploit.onLog = onLog
-            DaLoader.onLog = onLog
-            run()
-        }.start()
-    }
+    private val da1: ByteArray,
+    private val da2: ByteArray,
+    private val payload: ByteArray,
+    private val onDone: (Boolean, String) -> Unit
+) : Thread() {
 
-    private fun run() {
-        // Load binary assets
-        val da1: ByteArray
-        val da2: ByteArray
-        val payload: ByteArray
-        try {
-            da1 = context.assets.open("da/da1_mt6761.bin").readBytes()
-            da2 = context.assets.open("da/da2_mt6761.bin").readBytes()
-            payload = context.assets.open("da/mt6761_payload.bin").readBytes()
-            onLog("📁 DA1: ${da1.size} bytes, DA2: ${da2.size} bytes, payload: ${payload.size} bytes")
-        } catch (e: Exception) {
-            onLog("❌ לא ניתן לטעון קבצי DA: ${e.message}")
-            onDone(false)
-            return
-        }
+    private val TAG = "DaWorker"
 
-        val iface = findMtkInterface(device)
-        if (iface == null) {
-            onLog("❌ לא נמצא interface MTK USB")
-            onDone(false)
-            return
-        }
-        val conn = usbManager.openDevice(device)
-        if (conn == null) {
-            onLog("❌ לא ניתן לפתוח מכשיר")
-            onDone(false)
-            return
-        }
-        if (!conn.claimInterface(iface, true)) {
-            onLog("❌ claim interface נכשל")
-            conn.close()
-            onDone(false)
-            return
-        }
+    override fun run() {
         try {
-            val eps = MtkBromConnection.findEndpoints(iface)
+            val eps = MtkBromConnection.findBulkEndpoints(device)
             if (eps == null) {
-                onLog("❌ לא נמצאו endpoints")
-                onDone(false)
+                onDone(false, "❌ לא נמצאו endpoints")
                 return
             }
 
-            // Handshake first
-            if (!MtkBromConnection.doHandshake(conn, eps.epOut, eps.epIn)) {
-                onLog("❌ Handshake נכשל לפני exploit")
-                onDone(false)
+            val conn = usbManager.openDevice(device)
+            if (conn == null) {
+                onDone(false, "❌ לא ניתן לפתוח חיבור USB")
                 return
             }
 
-            // Run Kamakiri
-            val exploitOk = KamakiriExploit.run(conn, device, iface, eps, payload)
-            if (!exploitOk) {
-                onLog("❌ Exploit נכשל")
-                onDone(false)
+            if (!conn.claimInterface(eps.usbInterface, true)) {
+                conn.close()
+                onDone(false, "❌ לא ניתן לתפוס interface")
                 return
             }
 
-            // Device will disconnect — DA loading continues after reconnect
-            // The user will need to reconnect and press "טען DA" again
-            // OR we can try to wait for reconnect here
-            onLog("⏳ ממתין להתחברות מחדש (5 שניות)...")
-            Thread.sleep(5000)
+            // Handshake
+            if (!MtkBromConnection.performBromHandshake(conn, eps)) {
+                conn.releaseInterface(eps.usbInterface)
+                conn.close()
+                onDone(false, "❌ Handshake נכשל")
+                return
+            }
 
-            onLog("💡 אם המכשיר התחבר מחדש, טען DA כעת")
-            onDone(true)
-        } finally {
-            try { conn.releaseInterface(iface) } catch (_: Exception) {}
+            // בדוק chip
+            val hwCode = MtkBromConnection.readHwCode(conn, eps)
+            if (hwCode != 0x0717) {
+                conn.releaseInterface(eps.usbInterface)
+                conn.close()
+                onDone(false, "❌ Chip לא MT6761 (קיבלנו: 0x${hwCode?.toString(16) ?: "null"})")
+                return
+            }
+
+            MtkBromConnection.onLog("✅ MT6761 מאומת")
+
+            // הפעל Kamakiri
+            val result = KamakiriExploit.run(conn, eps, payload)
+
+            conn.releaseInterface(eps.usbInterface)
             conn.close()
-        }
-    }
 
-    private fun findMtkInterface(device: UsbDevice): UsbInterface? {
-        for (i in 0 until device.interfaceCount) {
-            val iface = device.getInterface(i)
-            if (iface.interfaceClass == 0xFF) return iface
+            if (!result) {
+                onDone(false, "❌ Kamakiri נכשל")
+                return
+            }
+
+            MtkBromConnection.onLog("⏳ ממתין לחיבור מחדש (5 שניות)...")
+            sleep(5000)
+            onDone(true, "✅ Kamakiri הצליח — חבר מחדש את המכשיר לטעינת DA")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "שגיאה", e)
+            onDone(false, "❌ שגיאה: ${e.message}")
         }
-        return if (device.interfaceCount > 0) device.getInterface(0) else null
     }
 }

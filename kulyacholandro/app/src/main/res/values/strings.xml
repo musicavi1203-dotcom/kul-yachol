@@ -1,20 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">כל יכול אנדרואיד</string>
-    <string name="status_waiting">ממתין לחיבור מכשיר…</string>
-    <string name="status_connected">מכשיר MTK זוהה!</string>
-    <string name="status_unknown">מכשיר לא מוכר</string>
-    <string name="status_disconnected">המכשיר נותק</string>
-    <string name="label_vendor_id">VID</string>
-    <string name="label_product_id">PID</string>
-    <string name="label_manufacturer">יצרן</string>
-    <string name="label_product">מוצר</string>
-    <string name="label_serial">סריאלי</string>
-    <string name="label_mode">מצב</string>
-    <string name="mode_brom">BROM (Boot ROM)</string>
-    <string name="mode_preloader">Preloader</string>
-    <string name="mode_unknown">לא מוכר</string>
-    <string name="btn_request_permission">🔑 בקש הרשאת USB</string>
-    <string name="permission_granted">הרשאה אושרה ✓</string>
-    <string name="permission_denied">הרשאה נדחתה ✗</string>
+    <string name="status_disconnected">⚫ לא מחובר</string>
+    <string name="status_connected">🟢 מחובר</string>
+    <string name="btn_read_chip">📡 קרא מידע שבב</string>
+    <string name="btn_load_da">🔓 טען DA</string>
+    <string name="btn_select_firmware">📁 בחר תיקייה</string>
+    <string name="no_firmware_dir">לא נבחרה תיקיית firmware</string>
 </resources>
