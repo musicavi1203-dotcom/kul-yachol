@@ -121,6 +121,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnPickFirmware.setOnClickListener { pickFirmware.launch(null) }
         binding.btnPickBackup.setOnClickListener { pickBackup.launch(null) }
+        binding.btnCopyLog.setOnClickListener {
+            val text = binding.tvLog.text.toString()
+            if (text.isNotEmpty()) {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("log", text))
+                appendLog("✅ לוג הועתק ללוח")
+            }
+        }
 
         // scatter ו-DA מוטמעים באפליקציה, ותיקיות נשמרות מהבחירה הקודמת
         loadBundledScatter()

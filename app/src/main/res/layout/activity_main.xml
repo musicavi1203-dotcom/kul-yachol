@@ -329,13 +329,29 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="📋 לוג"
-                    android:textSize="12sp"
-                    android:textColor="#8B949E"
-                    android:layout_marginBottom="6dp" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📋 לוג"
+                        android:textSize="12sp"
+                        android:textColor="#8B949E" />
+                    <Button
+                        android:id="@+id/btnCopyLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="📋 העתק"
+                        android:textSize="11sp"
+                        android:textColor="#E6EDF3"
+                        android:backgroundTint="#21262D"
+                        android:paddingHorizontal="12dp" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tvLog"
