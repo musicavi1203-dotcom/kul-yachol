@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- MTK BROM VID=0x0E8D PID=0x0003 -->
-    <usb-device vendor-id="3725" product-id="3"/>
-    <!-- MTK Preloader VID=0x0E8D PID=0x2000 -->
-    <usb-device vendor-id="3725" product-id="8192"/>
+    <!-- MediaTek BROM / Preloader -->
+    <usb-device vendor-id="3725" product-id="0003" />  <!-- 0x0E8D:0x0003 BROM -->
+    <usb-device vendor-id="3725" product-id="2000" />  <!-- 0x0E8D:0x07D0 Preloader -->
+    <!-- MediaTek generic -->
+    <usb-device vendor-id="3725" />
 </resources>
